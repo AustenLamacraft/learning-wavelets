@@ -16,7 +16,7 @@ from torchvision.datasets import MNIST
 from datasets.celeba import CelebA
 
 import numpy as np
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 import os
 import time
@@ -672,29 +672,9 @@ if __name__ == '__main__':
     args.output_dir = os.path.dirname(args.restore_file) if args.restore_file else os.path.join(args.output_dir, time.strftime('%Y-%m-%d_%H-%M-%S', time.gmtime()))
     writer = None  # init as None in case of multiprocessing; only main process performs write ops
 
-    # setup device and distributed training
-    if args.distributed:
-        torch.cuda.set_device(args.local_rank)
-        args.device = torch.device('cuda:{}'.format(args.local_rank))
-
-        # initialize
-        torch.distributed.init_process_group(backend='nccl', init_method='env://')
-
-        # compute total world size (used to keep track of global step)
-        args.world_size = int(os.environ['WORLD_SIZE'])  # torch.distributed.launch sets this to nproc_per_node * nnodes
-    else:
-        if torch.cuda.is_available(): args.local_rank = 0
-        args.device = torch.device('cuda:{}'.format(args.local_rank) if args.local_rank is not None else 'cpu')
-
-    # write ops only when on_main_process
-    # NOTE: local_rank unique only to the machine; only 1 process on each node is on_main_process;
-    #       if shared file system, args.local_rank below should be replaced by global rank e.g. torch.distributed.get_rank()
-    args.on_main_process = (args.distributed and args.local_rank == 0) or not args.distributed
-
     # setup seed
     if args.seed:
         torch.manual_seed(args.seed)
-        if args.device.type == 'cuda': torch.cuda.manual_seed(args.seed)
 
     # load data; sets args.input_dims needed for setting up the model
     train_dataloader = fetch_dataloader(args, train=True)
@@ -702,14 +682,6 @@ if __name__ == '__main__':
 
     # load model
     model = Glow(args.width, args.depth, args.n_levels, args.input_dims, args.checkpoint_grads).to(args.device)
-    if args.distributed:
-        # NOTE: DistributedDataParallel will divide and allocate batch_size to all available GPUs if device_ids are not set
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank], output_device=args.local_rank)
-    else:
-        # for compatibility of saving/loading models, wrap non-distributed cpu/gpu model as well;
-        # ie state dict is based on model.module.layer keys, which now match between training distributed and running then locally
-        model = torch.nn.parallel.DataParallel(model)
-    # DataParalle and DistributedDataParallel are wrappers around the model; expose functions of the model directly
     model.base_dist = model.module.base_dist
     model.log_prob = model.module.log_prob
     model.inverse = model.module.inverse
