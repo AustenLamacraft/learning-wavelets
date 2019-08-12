@@ -3,13 +3,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions as D
 import torchvision.transforms as T
-from torch.utils.data import DataLoader
 from torch.utils.checkpoint import checkpoint
 from tensorboardX import SummaryWriter
 
-import numpy as np
-
 from modules import WaveletNet
+from datasets import fetch_dataloader
 
 import os
 import time
@@ -36,19 +34,6 @@ parser.add_argument('--n_epochs', type=int, default=10, help='Number of epochs t
 parser.add_argument('--start_epoch', default=0, help='Starting epoch (for logging; to be overwritten when restoring file.')
 parser.add_argument('--lr', type=float, default=1e-3, help='Learning rate.')
 parser.add_argument('--grad_norm_clip', default=50, type=float, help='Clip gradients during training.')
-
-# --------------------
-# Data
-# --------------------
-def fetch_dataloader(args):
-    dimensionality = 64
-    n_samples = args.batch_size
-    loc = torch.rand(dimensionality).double()
-    scale_tril = torch.tensor(np.tril(np.random.rand(dimensionality, dimensionality)+.1)).double()
-    dist = D.MultivariateNormal(loc=loc, scale_tril=scale_tril)
-    x_sample = dist.sample((n_samples,)).float()
-    data_loader = DataLoader(dataset=x_sample, batch_size=args.batch_size)
-    return data_loader
 
 # --------------------
 # Train and evaluate
