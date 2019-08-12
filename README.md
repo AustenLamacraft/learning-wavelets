@@ -1,10 +1,16 @@
 # learning-wavelets
 Learning wavelet transforms for audio compression
 
-## Test
 
-To run the tests, run
+## Train
+
+To train the model, run
 ```
-python -m unittest
+python src/waveletnet.py --train
 ```
-from inside the wavelet directory.
+from the `wavelet` directory.
+
+To see more options, run
+```
+python src/waveletnet.py --help
+```

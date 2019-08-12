@@ -17,7 +17,7 @@ import math
 import argparse
 import pprint
 import pdb
-pdb.set_trace()
+# pdb.set_trace()
 
 parser = argparse.ArgumentParser()
 # action
@@ -109,8 +109,6 @@ if __name__ == '__main__':
 
     # load model
     model = WaveletNet()
-    for p in model.parameters():
-        print(p)
 
     # load optimizers
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
