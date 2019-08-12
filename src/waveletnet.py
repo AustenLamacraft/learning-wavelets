@@ -15,6 +15,7 @@ import math
 import argparse
 import pprint
 import pdb
+# Enable to debug the running script by pressing Ctrl+C.
 # pdb.set_trace()
 
 parser = argparse.ArgumentParser()
@@ -22,11 +23,13 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--train', action='store_true', help='Train a flow.')
 parser.add_argument('--restore_file', type=str, help='Path to model to restore.')
 parser.add_argument('--seed', type=int, help='Random seed to use.')
+# data
+parser.add_argument('--dataset', type=str, default='MultivariateNormal', help='Which dataset to use.')
 # paths and reporting
 parser.add_argument('--output_dir', default='./results/{}'.format(os.path.splitext(__file__)[0]))
 parser.add_argument('--results_file', default='results.txt', help='Filename where to store settings and test results.')
-parser.add_argument('--log_interval', type=int, default=100, help='How often to show loss statistics and save samples.')
-parser.add_argument('--save_interval', type=int, default=200, help='How often to save during training.')
+parser.add_argument('--log_interval', type=int, default=10, help='How often to show loss statistics and save samples.')
+parser.add_argument('--save_interval', type=int, default=100, help='How often to save during training.')
 parser.add_argument('--eval_interval', type=int, default=1, help='Number of epochs to eval model and save model checkpoint.')
 # training params
 parser.add_argument('--batch_size', type=int, default=16, help='Training batch size.')
@@ -90,7 +93,7 @@ if __name__ == '__main__':
         torch.manual_seed(args.seed)
 
     # load data; sets args.input_dims needed for setting up the model
-    train_dataloader = fetch_dataloader(args)
+    train_dataloader = fetch_dataloader(batch_size=args.batch_size, dataset=args.dataset)
 
     # load model
     model = WaveletNet()
