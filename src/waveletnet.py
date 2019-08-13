@@ -31,7 +31,7 @@ parser.add_argument('--results_file', default='results.txt', help='Filename wher
 parser.add_argument('--log_interval', type=int, default=10, help='How often to show loss statistics and save samples.')
 parser.add_argument('--save_interval', type=int, default=100, help='How often to save during training.')
 parser.add_argument('--eval_interval', type=int, default=1, help='Number of epochs to eval model and save model checkpoint.')
-# training params
+# training
 parser.add_argument('--batch_size', type=int, default=16, help='Training batch size.')
 parser.add_argument('--n_epochs', type=int, default=10, help='Number of epochs to train.')
 parser.add_argument('--start_epoch', default=0, help='Starting epoch (for logging; to be overwritten when restoring file.')

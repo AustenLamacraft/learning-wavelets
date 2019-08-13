@@ -14,6 +14,13 @@ def fetch_dataloader(batch_size, dataset):
         dist = D.MultivariateNormal(loc=loc, scale_tril=scale_tril)
         x_sample = dist.sample((batch_size,)).float()
         x_sample = torch.cat(list(repeat(x_sample, 100)))
+    elif dataset == 'BivariateNormal':
+        dimensionality = 2
+        loc = torch.rand(dimensionality).double()
+        scale_tril = torch.tensor(np.tril(np.random.rand(dimensionality, dimensionality)+.1)).double()
+        dist = D.MultivariateNormal(loc=loc, scale_tril=scale_tril)
+        x_sample = dist.sample((batch_size,)).float()
+        x_sample = torch.cat(list(repeat(x_sample, 100)))
     else:
         raise Exception(f"Unknown dataset {dataset}.")
 

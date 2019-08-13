@@ -37,20 +37,22 @@ class LazyWavelet(nn.Module):
     Output of forward: Two stacked 1D tensors of the form [[even x componenents], [odd x components]]
     See https://uk.mathworks.com/help/wavelet/ug/lifting-method-for-constructing-wavelets.html
     for notation.
+
+    WORKS ONLY WITH len(x) = 2^x, integer x.
     '''
     def __init__(self):
         super().__init__()
 
     def forward(self, x):
-        x_evens = x[0::2]
-        x_odds = x[1::2]
+        x_evens = x[:,0::2]
+        x_odds = x[:,1::2]
         log_det = 0
-        return torch.stack([x_evens, x_odds]), log_det
+        return torch.stack([x_evens, x_odds], dim=1), log_det
 
     def inverse(self, z):
-        x_evens = z[0,:]
-        x_odds = z[1,:]
-        x = torch.reshape(torch.stack([x_evens, x_odds], axis=1), shape=[-1])  # interleave evens and odds
+        x_evens = z[:,0,:]
+        x_odds = z[:,1,:]
+        x = torch.reshape(torch.stack([x_evens, x_odds], axis=1), shape=[-1, 2*z.shape[-1]])  # interleave evens and odds
         log_det = 0
         return x, log_det
 
@@ -67,32 +69,30 @@ class Lifting(nn.Module):
                 # 2 coefficients are sufficient for fully general wavelet transforms,
                 # given enough lifting steps. Use 3, because convolve_circular expects
                 # an odd number.
-                n_lifting_coeffs=3,
-                P_coeff=torch.rand((3,)),
-                U_coeff=torch.rand((3,))):
+                p_lifting_coeffs=1,
+                u_lifting_coeffs=1):
         super().__init__()
-        self.n_lifting_coeffs = n_lifting_coeffs
-        self.P_coeff = nn.Parameter(P_coeff)  # P: predict (primal lifting)
-        self.U_coeff = nn.Parameter(U_coeff)  # U: update (dual lifting)
+        self.P_coeff = nn.Parameter(torch.zeros((p_lifting_coeffs,)))  # P: predict (primal lifting)
+        self.U_coeff = nn.Parameter(torch.zeros((u_lifting_coeffs,)))  # U: update (dual lifting)
 
     def forward(self, x):
-        x_evens = x[0,:]
-        x_odds = x[1,:]
+        x_evens = x[:,0,:]
+        x_odds = x[:,1,:]
         evens_conv_P = convolve_circular(x_evens, self.P_coeff)
         detail = x_odds - evens_conv_P
         detail_conv_U = convolve_circular(detail, self.U_coeff)
         average = x_evens + detail_conv_U
         log_det = 0
-        return torch.stack([average, detail]), log_det
+        return torch.stack([average, detail], dim=1), log_det
 
     def inverse(self, z):
-        average = z[0,:]
-        detail = z[1,:]
+        average = z[:,0,:]
+        detail = z[:,1,:]
         detail_conv_U = convolve_circular(detail, self.U_coeff)
         x_evens = average - detail_conv_U
         evens_conv_P = convolve_circular(x_evens, self.P_coeff)
         x_odds = evens_conv_P + detail
-        x = torch.stack([x_evens, x_odds])
+        x = torch.stack([x_evens, x_odds], dim=1)
         log_det = 0
         return x, log_det
 
@@ -124,7 +124,7 @@ class WaveletStep(FlowSequential):
     One step in a wavelet transform.
     '''
     def __init__(self, n_lifting_steps):
-        liftings = [Lifting() for _ in range(0, n_lifting_steps)]
+        liftings = [Lifting(1,1) for _ in range(0, n_lifting_steps)]
         lazy_wavelet = LazyWavelet()
         super().__init__(lazy_wavelet, *liftings)
 
@@ -144,18 +144,19 @@ class WaveletNet(nn.Module):
              ,/ /_]/ | |    ~-_
     -..__..-''  \_ \_\ `_      ~~--..__...----...
     '''
-    def __init__(self):
+    def __init__(self, n_lifting_steps):
         super().__init__()
-        self.wavelet_step = WaveletStep(n_lifting_steps=2)
+        self.wavelet_step = WaveletStep(n_lifting_steps=n_lifting_steps)
         self.base_dist = D.Normal(0., 1.)
 
     def forward(self, x):
         return self.wavelet_step.forward(x)
 
     def inverse(self, z):
-        self.wavelet_step.inverse(z)
+        res = self.wavelet_step.inverse(z)
+        return res
 
     def log_prob(self, x):
         z, log_det = self.forward(x)
-        log_prob = sum(self.base_dist.log_prob(z)) + log_det
+        log_prob = self.base_dist.log_prob(z).sum([1]) + log_det
         return log_prob
