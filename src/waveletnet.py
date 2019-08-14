@@ -4,6 +4,8 @@ import torch.nn.functional as F
 import torch.distributions as D
 import torchvision.transforms as T
 from torch.utils.checkpoint import checkpoint
+from torch.utils.data import DataLoader
+
 from tensorboardX import SummaryWriter
 
 from modules import WaveletNet
