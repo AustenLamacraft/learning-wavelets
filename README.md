@@ -14,3 +14,8 @@ To see more options, run
 ```
 python src/waveletnet.py --help
 ```
+
+## Dependencies
+
+* PyTorch
+* tensorboardX

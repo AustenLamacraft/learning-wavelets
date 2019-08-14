@@ -18,9 +18,6 @@ def convolve_circular(a, b):
     a = a.reshape(-1, a.shape[-1])
     len_a = a.size()[1]
     len_b = b.size()[0]
-    # print("len_a", len_a)
-    # print(a.dtype)
-    # print(b.dtype)
     result = torch.zeros(a.shape)
     for i in range(0, len_a):
         for j in range(0, len_b):
@@ -52,7 +49,7 @@ class LazyWavelet(nn.Module):
     def inverse(self, z):
         x_evens = z[:,0,:]
         x_odds = z[:,1,:]
-        x = torch.reshape(torch.stack([x_evens, x_odds], axis=1), shape=[-1, 2*z.shape[-1]])  # interleave evens and odds
+        x = torch.reshape(torch.stack([x_evens, x_odds], axis=2), shape=[-1, 2*z.shape[-1]])  # interleave evens and odds
         log_det = 0
         return x, log_det
 
@@ -69,8 +66,8 @@ class Lifting(nn.Module):
                 # 2 coefficients are sufficient for fully general wavelet transforms,
                 # given enough lifting steps. Use 3, because convolve_circular expects
                 # an odd number.
-                p_lifting_coeffs=1,
-                u_lifting_coeffs=1):
+                p_lifting_coeffs=3,
+                u_lifting_coeffs=3):
         super().__init__()
         self.P_coeff = nn.Parameter(torch.zeros((p_lifting_coeffs,)))  # P: predict (primal lifting)
         self.U_coeff = nn.Parameter(torch.zeros((u_lifting_coeffs,)))  # U: update (dual lifting)
@@ -96,13 +93,30 @@ class Lifting(nn.Module):
         log_det = 0
         return x, log_det
 
+class FlattenLatents(nn.Module):
+    def __init__(self, n_wavelet_steps):
+        super().__init__()
+        self.n_wavelet_steps = n_wavelet_steps
+
+    def forward(self, x):
+        return torch.cat(x, dim=1), 0
+
+    def inverse(self, z):
+        zs = []
+        pos = 0
+        for i in range(0, self.n_wavelet_steps):
+            n_coeffs = (z.shape[1]) // (2**(i+1))
+            zs.append(z[:, pos:pos+n_coeffs])
+            pos += n_coeffs
+        zs.append(z[:, pos:z.shape[1]])
+        return zs, 0
+
 # --------------------
 # Container layers
 # --------------------
 class FlowSequential(nn.Sequential):
     """ Container for layers of a normalizing flow """
     def __init__(self, *args, **kwargs):
-        self.checkpoint_grads = kwargs.pop('checkpoint_grads', None)
         super().__init__(*args, **kwargs)
 
     def forward(self, x):
@@ -122,15 +136,51 @@ class FlowSequential(nn.Sequential):
 class WaveletStep(FlowSequential):
     '''
     One step in a wavelet transform.
+    dims: array of shape (n_lifting_steps, 2)
+          dims[k, 0] gives p_lifting_coeffs for the kth lifting step.
+          dims[k, 1] gives u_lifting_coeffs for the kth lifting step.
+          Default of 2 lifting steps with 3 coefficients per filter.
     '''
-    def __init__(self, n_lifting_steps):
-        liftings = [Lifting(1,1) for _ in range(0, n_lifting_steps)]
+    def __init__(self, dims=[[3,3], [3,3]]):
+        self.dims = dims
+        self.liftings = [Lifting(p_lifting_coeffs, u_lifting_coeffs) for (p_lifting_coeffs, u_lifting_coeffs) in dims]
         lazy_wavelet = LazyWavelet()
-        super().__init__(lazy_wavelet, *liftings)
+        super().__init__(lazy_wavelet, *self.liftings)
 
-# TODO
 class Wavelet(nn.Module):
-    pass
+    '''
+    Multi-step wavelet transform.
+    dims: array of shape (n_wavelet_steps, n_lifting_steps, 2)
+          dims[j, k, 0] gives p_lifting_coeffs for the kth lifting step in the jth wavelet step.
+          dims[j, k, 1] gives u_lifting_coeffs for the kth lifting step in the jth wavelet step.
+          Default of 2 wavelet steps with 2 lifting steps with 3 coefficients per filter.
+    '''
+    def __init__(self, dims=[[[3,3], [3,3]], [[3,3], [3,3]]]):
+        super().__init__()
+        self.wavelet_steps = nn.ModuleList([WaveletStep(wavelet_step_dims) for wavelet_step_dims in dims])
+
+    def forward(self, x):
+        zs = []
+        lowpass_coeffs = x
+        sum_log_dets = 0.
+        for wavelet_step in self.wavelet_steps:
+            coeffs, log_det = wavelet_step(lowpass_coeffs)
+            zs.append(coeffs[:,0])
+            lowpass_coeffs = coeffs[:,1]
+            sum_log_dets += log_det
+        zs.append(lowpass_coeffs)
+        return zs, sum_log_dets
+
+    def inverse(self, zs):
+        sum_log_dets = 0.
+        zs_idx = -1
+        lowpass_coeffs = zs[zs_idx]
+        for wavelet_step in reversed(self.wavelet_steps):
+            zs_idx -= 1
+            z = zs[zs_idx]
+            lowpass_coeffs, log_det = wavelet_step.inverse(torch.stack([z, lowpass_coeffs], dim=1))
+            sum_log_dets += log_det
+        return lowpass_coeffs, sum_log_dets
 
 # --------------------
 # Model
@@ -144,16 +194,16 @@ class WaveletNet(nn.Module):
              ,/ /_]/ | |    ~-_
     -..__..-''  \_ \_\ `_      ~~--..__...----...
     '''
-    def __init__(self, n_lifting_steps):
+    def __init__(self, dims=[[[3,3], [3,3]], [[3,3], [3,3]]]):
         super().__init__()
-        self.wavelet_step = WaveletStep(n_lifting_steps=n_lifting_steps)
+        self.net = FlowSequential(Wavelet(dims), FlattenLatents(len(dims)))
         self.base_dist = D.Normal(0., 1.)
 
     def forward(self, x):
-        return self.wavelet_step.forward(x)
+        return self.net.forward(x)
 
     def inverse(self, z):
-        res = self.wavelet_step.inverse(z)
+        res = self.net.inverse(z)
         return res
 
     def log_prob(self, x):
