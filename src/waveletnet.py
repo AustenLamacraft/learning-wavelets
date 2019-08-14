@@ -7,7 +7,7 @@ from torch.utils.checkpoint import checkpoint
 from tensorboardX import SummaryWriter
 
 from modules import WaveletNet
-from datasets import fetch_dataloader
+from datasets import fetch_dataset
 
 import os
 import time
@@ -93,7 +93,7 @@ if __name__ == '__main__':
         torch.manual_seed(args.seed)
 
     # load data; sets args.input_dims needed for setting up the model
-    train_dataloader = fetch_dataloader(batch_size=args.batch_size, dataset=args.dataset)
+    train_dataloader = DataLoader(dataset=fetch_dataset(args.dataset), batch_size=args.batch_size)
 
     # load model
     model = WaveletNet()

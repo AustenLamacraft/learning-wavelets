@@ -6,23 +6,21 @@ import numpy as np
 
 from itertools import repeat
 
-def fetch_dataloader(batch_size, dataset):
+def fetch_dataset(dataset):
     if dataset == 'MultivariateNormal':
         dimensionality = 64
-        loc = torch.rand(dimensionality).double()
-        scale_tril = torch.tensor(np.tril(np.random.rand(dimensionality, dimensionality)+.1)).double()
+        loc = torch.zeros(dimensionality).double()
+        scale_tril = torch.tensor(np.tril((np.random.rand(dimensionality, dimensionality)-.5)*2)).double()
         dist = D.MultivariateNormal(loc=loc, scale_tril=scale_tril)
-        x_sample = dist.sample((batch_size,)).float()
-        x_sample = torch.cat(list(repeat(x_sample, 100)))
+        x_sample = dist.sample((512,)).float()
+        return x_sample
     elif dataset == 'BivariateNormal':
         dimensionality = 2
-        loc = torch.rand(dimensionality).double()
-        scale_tril = torch.tensor(np.tril(np.random.rand(dimensionality, dimensionality)+.1)).double()
+        loc = torch.zeros(dimensionality).double()
+        scale_tril = torch.tensor(np.tril((np.random.rand(dimensionality, dimensionality)-.5)*2)).double()
         dist = D.MultivariateNormal(loc=loc, scale_tril=scale_tril)
-        x_sample = dist.sample((batch_size,)).float()
-        x_sample = torch.cat(list(repeat(x_sample, 100)))
+        x_sample = dist.sample((512,)).float()
+        return x_sample
     else:
         raise Exception(f"Unknown dataset {dataset}.")
 
-    data_loader = DataLoader(dataset=x_sample, batch_size=batch_size)
-    return data_loader
