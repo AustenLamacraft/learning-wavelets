@@ -142,10 +142,21 @@ class Wavelet(nn.Module):
           dims[j, k, 0] gives p_lifting_coeffs for the kth lifting step in the jth wavelet step.
           dims[j, k, 1] gives u_lifting_coeffs for the kth lifting step in the jth wavelet step.
           Default of 2 wavelet steps with 2 lifting steps with 3 coefficients per filter.
+    share_parameters: If True, share Parameters across all WaveletStep layers. The Wavelet then corresponds
+        to a valid wavelet transform.
     '''
-    def __init__(self, dims=[[[3,3], [3,3]], [[3,3], [3,3]]]):
+    def __init__(self, dims=[[[3,3], [3,3]], [[3,3], [3,3]]], share_parameters=False):
         super().__init__()
-        self.wavelet_steps = nn.ModuleList([WaveletStep(wavelet_step_dims) for wavelet_step_dims in dims])
+        if share_parameters:
+            self._assert_valid_dims_for_shared_parameters(dims)
+            wavelet_step = WaveletStep(dims[0])
+            self.wavelet_steps = nn.ModuleList([wavelet_step for _ in dims])
+        else:
+            self.wavelet_steps = nn.ModuleList([WaveletStep(wavelet_step_dims) for wavelet_step_dims in dims])
+
+    def _assert_valid_dims_for_shared_parameters(self, dims):
+        if not all(x == dims[0] for x in dims):
+            raise Exception("When sharing parameters, all entries in dims must be equal!")
 
     def forward(self, x):
         zs = []
@@ -182,9 +193,9 @@ class WaveletNet(nn.Module):
              ,/ /_]/ | |    ~-_
     -..__..-''  \_ \_\ `_      ~~--..__...----...
     '''
-    def __init__(self, dims=[[[3,3], [3,3]], [[3,3], [3,3]]]):
+    def __init__(self, dims=[[[3,3], [3,3]], [[3,3], [3,3]]], share_parameters=False):
         super().__init__()
-        self.net = FlowSequential(Wavelet(dims), FlattenLatents(len(dims)))
+        self.net = FlowSequential(Wavelet(dims, share_parameters), FlattenLatents(len(dims)))
         self.base_dist = D.Normal(0., 1.)
 
     def forward(self, x):
