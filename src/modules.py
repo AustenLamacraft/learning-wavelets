@@ -1,28 +1,16 @@
 import torch
 import torch.nn as nn
 import torch.distributions as D
+import torch.nn.functional as F
 
 # --------------------
 # Helper functions
 # --------------------
 def convolve_circular(a, b):
-    '''
-    a: vector
-    b: kernel (must have odd length!)
-    Naive implementation of circular convolution. The middle entry of b corresponds to the coefficient of z^0:
-    b[0] b[1] b[2] b[3] b[4]
-    z^-2 z^-1 z^0  z^1  z^2
-    '''
-    # Reshape to 2D array with each row a datapoint.
-    a_orig_shape = a.shape
-    a = a.reshape(-1, a.shape[-1])
-    len_a = a.size()[1]
-    len_b = b.size()[0]
-    result = torch.zeros(a.shape)
-    for i in range(0, len_a):
-        for j in range(0, len_b):
-            result[:, i] += b[-j-1] * a[:, (i + (j - len_b//2)) % len_a]
-    return result.reshape(a_orig_shape)
+    return F.conv1d(
+        F.pad(a.unsqueeze(1), (0, b.shape[-1]-1), mode='circular'),
+        b.unsqueeze(0).unsqueeze(0)
+    ).reshape(a.shape)
 
 # --------------------
 # Model component layers
