@@ -205,6 +205,12 @@ class WaveletNet(nn.Module):
         res = self.net.inverse(z)
         return res
 
+    def sample(self, n_samples, sample_length):
+        z = self.base_dist.sample((n_samples, sample_length))
+        with torch.no_grad():
+            x, _ = self.inverse(z)
+        return x.numpy()
+
     def log_prob(self, x):
         z, log_det = self.forward(x)
         log_prob = self.base_dist.log_prob(z).sum([1]) + log_det
