@@ -99,6 +99,24 @@ class FlattenLatents(nn.Module):
         zs.append(z[:, pos:z.shape[1]])
         return zs, 0
 
+class LeakyReLU(nn.Module):
+    def __init__(self, alpha=.5):
+        super().__init__()
+        self.alpha = alpha
+
+    def forward(self, x):
+        return (torch.where(x >= 0, x, self.alpha*x), -self._inverse_log_det_jacobian(x))
+
+    def inverse(self, z):
+        return (torch.where(z >= 0, z, (1./self.alpha)*z), self._inverse_log_det_jacobian(z))
+
+    def _inverse_log_det_jacobian(self, z):
+        I = torch.ones(z.shape)
+        J_inv = torch.where(z >= 0, I, 1.0 / self.alpha * I)
+        # abs is actually redundant here, since this det Jacobian is > 0
+        log_abs_det_J_inv = torch.log(torch.abs(J_inv))
+        return torch.sum(log_abs_det_J_inv, dim=1)
+
 # --------------------
 # Container layers
 # --------------------
@@ -181,29 +199,11 @@ class Wavelet(nn.Module):
             sum_log_dets += log_det
         return lowpass_coeffs, sum_log_dets
 
-# --------------------
-# Model
-# --------------------
-class WaveletNet(nn.Module):
-    '''
-           _.====.._
-         ,:._       ~-_
-             `\        ~-_
-               | _  _  |  `.
-             ,/ /_]/ | |    ~-_
-    -..__..-''  \_ \_\ `_      ~~--..__...----...
-    '''
-    def __init__(self, dims=[[[3,3], [3,3]], [[3,3], [3,3]]], share_parameters=False):
-        super().__init__()
-        self.net = FlowSequential(Wavelet(dims, share_parameters), FlattenLatents(len(dims)))
-        self.base_dist = D.Normal(0., 1.)
-
-    def forward(self, x):
-        return self.net.forward(x)
-
-    def inverse(self, z):
-        res = self.net.inverse(z)
-        return res
+class Bijector(FlowSequential):
+    def __init__(self,*args, base_dist = D.Normal(0, 1), **kwargs):
+        print(args, base_dist, kwargs)
+        super().__init__(*args, **kwargs)
+        self.base_dist = base_dist
 
     def sample(self, n_samples, sample_length):
         z = self.base_dist.sample((n_samples, sample_length))
@@ -215,3 +215,18 @@ class WaveletNet(nn.Module):
         z, log_det = self.forward(x)
         log_prob = self.base_dist.log_prob(z).sum([1]) + log_det
         return log_prob
+
+# --------------------
+# Model
+# --------------------
+class WaveletNet(Bijector):
+    '''
+           _.====.._
+         ,:._       ~-_
+             `\        ~-_
+               | _  _  |  `.
+             ,/ /_]/ | |    ~-_
+    -..__..-''  \_ \_\ `_      ~~--..__...----...
+    '''
+    def __init__(self, dims=[[[3,3], [3,3]], [[3,3], [3,3]]], share_parameters=False):
+        super().__init__(Wavelet(dims, share_parameters), FlattenLatents(len(dims)))
