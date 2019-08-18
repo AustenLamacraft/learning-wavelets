@@ -3,14 +3,7 @@ import torch.nn as nn
 import torch.distributions as D
 import torch.nn.functional as F
 
-# --------------------
-# Helper functions
-# --------------------
-def convolve_circular(a, b):
-    return F.conv1d(
-        F.pad(a.unsqueeze(1), (0, b.shape[-1]-1), mode='circular'),
-        b.unsqueeze(0).unsqueeze(0)
-    ).reshape(a.shape)
+from utils import get_polyphase_matrix_product, get_polyphase_identity_matrix, convolve_circular
 
 # --------------------
 # Model component layers
@@ -81,6 +74,14 @@ class Lifting(nn.Module):
         log_det = 0
         return x, log_det
 
+    def get_polyphase_matrix(self):
+        return get_polyphase_matrix_product(
+            [torch.tensor([1.]), self.U_coeff.clone().detach(),
+             torch.tensor([0.]), torch.tensor([1.])],
+            [torch.tensor([1.]), torch.tensor([0.]),
+             -self.P_coeff.clone().detach(), torch.tensor([1.])],
+        )
+
 class FlattenLatents(nn.Module):
     def __init__(self, n_wavelet_steps):
         super().__init__()
@@ -111,7 +112,7 @@ class LeakyReLU(nn.Module):
         return (torch.where(z >= 0, z, (1./self.alpha)*z), self._inverse_log_det_jacobian(z))
 
     def _inverse_log_det_jacobian(self, z):
-        I = torch.ones(z.shape)
+        I = torch.ones(z.shape, device=z.device)
         J_inv = torch.where(z >= 0, I, 1.0 / self.alpha * I)
         # abs is actually redundant here, since this det Jacobian is > 0
         log_abs_det_J_inv = torch.log(torch.abs(J_inv))
@@ -152,6 +153,17 @@ class WaveletStep(FlowSequential):
         self.liftings = [Lifting(p_lifting_coeffs, u_lifting_coeffs) for (p_lifting_coeffs, u_lifting_coeffs) in dims]
         lazy_wavelet = LazyWavelet()
         super().__init__(lazy_wavelet, *self.liftings)
+
+    '''
+    Returns the polyphase matrix M = [a b
+                                      c d]
+    as [a, b, c, d], where M is the product of the polyphase matrices of the lifting steps.
+    '''
+    def get_polyphase_matrix(self):
+        M = get_polyphase_identity_matrix()
+        for lifting in self.liftings:
+            M = get_polyphase_matrix_product(lifting.get_polyphase_matrix(), M)
+        return M
 
 class Wavelet(nn.Module):
     '''
