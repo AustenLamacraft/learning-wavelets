@@ -1,0 +1,496 @@
+%\documentclass[article]{revtex4}
+\documentclass[preprint,notitlepage]{revtex4-1}
+\usepackage{graphicx}
+\usepackage{amssymb}
+\usepackage{bm}
+\usepackage{amsmath,amsfonts,latexsym,braket,dsfont}
+%\usepackage{array,tabularx}
+%\usepackage{dcolumn}               % Align table columns on decimal
+%\usepackage{groupedaddress}				% point
+
+\usepackage{hyperref}              %don't get compounds citations e.g. [1-5]
+\usepackage{comment}
+
+
+\newcommand*{\br}{\mathbf{r}}
+\newcommand*{\bp}{\mathbf{p}}
+\newcommand*{\bk}{\mathbf{k}}
+\newcommand*{\bq}{\mathbf{q}}
+\newcommand*{\bv}{\mathbf{v}}
+\newcommand*{\cD}{{\mathcal D}}
+\newcommand*{\cF}{{\mathcal F}}
+\newcommand*{\cC}{{\mathcal C}}
+\newcommand*{\cA}{{\mathcal A}}
+\newcommand*{\cE}{{\mathcal E}}
+\newcommand*{\cZ}{{\mathcal Z}}
+\newcommand*{\cL}{{\mathcal L}}
+\newcommand*{\cH}{{\mathcal H}}
+\newcommand*{\cG}{{\mathcal G}}
+\newcommand*{\cV}{{\mathcal V}}
+\newcommand*{\cI}{{\mathcal I}}
+\newcommand*{\cP}{{\mathcal P}}
+\newcommand*{\cN}{{\mathcal N}}
+\newcommand*{\cU}{{\mathcal U}}
+\newcommand*{\cT}{{\mathcal T}}
+\newcommand*{\cO}{{\mathcal O}}
+\newcommand*{\cW}{{\mathcal W}}
+
+\newcommand*{\pop}{\psi^{\vphantom{\dagger}}}
+\newcommand*{\pdop}{\psi^\dagger}
+\newcommand*{\Pop}{\Psi^{\vphantom{\dagger}}}
+\newcommand*{\Pdop}{\Psi^\dagger}
+\newcommand*{\Phop}{\Phi^{\vphantom{\dagger}}}
+\newcommand*{\Phdop}{\Phi^\dagger}
+\newcommand*{\Thop}{\Theta^{\vphantom{\dagger}}}
+\newcommand*{\Thdop}{\Theta^\dagger}
+\newcommand*{\phop}{\phi^{\vphantom{\dagger}}}
+\newcommand*{\phdop}{\phi^\dagger}
+\newcommand*{\aop}{a^{\vphantom{\dagger}}}
+\newcommand*{\adop}{a^\dagger}
+\newcommand*{\bop}{b^{\vphantom{\dagger}}}
+\newcommand*{\bdop}{b^\dagger}
+\newcommand*{\cop}{c^{\vphantom{\dagger}}}
+\newcommand*{\cdop}{c^\dagger}
+\newcommand*{\Fop}{F^{\vphantom{\dagger}}}
+\newcommand*{\Fdop}{F^\dagger}
+
+\newcommand*{\sgn}{\mathrm{sgn}}
+
+\def\nn{\nonumber\\}
+\def\vect#1{\ensuremath{\boldsymbol{#1}}}
+
+\DeclareMathOperator{\tr}{tr}
+%\newcommand{\vect}[1]{\mathbf{#1}}
+\DeclareMathOperator*{\E}{\mathbb{E}}
+
+\newcommand{\rbra}[1]{(#1|}
+\newcommand{\rket}[1]{|#1)}
+\newcommand{\T}{\mathcal{T}}
+\newcommand{\rproj}[1]{\rket{#1}\rbra{#1}}
+\newcommand{\rbraket}[2]{\left(#1\middle|#2\right)}
+\newcommand{\PDS}{\rproj{0}}
+
+\newcommand{\KLD}[2]{D_{\mathrm{KL}} \left( \left. \left. #1 \right|\right| #2 \right) }
+
+
+
+\begin{document}
+
+\title{Compression for audio models}
+\author{Austen Lamacraft}
+\date{\today}
+
+\maketitle
+\tableofcontents
+
+\section{Compression}
+
+\subsection{Compression and Entropy}
+
+The foundational result in coding theory is Shannon's source coding theorem (the original paper Ref.~\cite{Shannon:1948aa} is well worth reading).  This is a statement about the average code length for `messages' described by some probability distribution $p_i$. The individual messages could be characters, images, audio clips: all that matters is the distribution. If we send iid messages drawn from this distribution, Shannon tells us the minimum code length per message that can be achieved \emph{on average} i.e. in the limit of infnitely many messages.
+The results it that the average length in bits is bounded from below by the \emph{entropy} $H(p)$
+%
+\begin{equation}
+  H(p) = -\sum_i p_i\log_2 p_i.
+\end{equation}
+%
+
+
+The two key questions in lossless compression are then
+
+\begin{enumerate}
+  \item What is $p_i$ for the data of interest?
+  \item How do we do the coding in practice to approach the Shannon limit as closely as possible?
+\end{enumerate}
+
+Machine learning has something to offer mainly in addressing the first question. As we'll explain in a second, the bigger the chunks of data that we can model probabilistically, the better we can make our code. Consider the example that Shannon discussed in his paper: probabilistic modelling of the English language. The crudest approximation is to consider only the probability distribution $p(\text{char})$ of individual characters, pretending that each character is independent. The next approximation is to consider probabilities of neighbouring characters, described by the conditional probabilities $p(\text{char}_{t+1}|\text{char}_t)$. Adding dependence on longer and longer prefixes of characters allows us to improve the model. This shortens the code, for the following reason. If we have a model $q_i$ for message $i$ and we encode it with $-\log_2 q_i$ bits, the average length (averaged with respect to the \emph{real} distribution of messages) is called the \emph{cross-entropy}
+%
+\begin{equation}
+  H(p,q)=-\sum_i p_i\log_2 q_i=H(p) + D_{\text{KL}}\left(p \middle\| q\right),
+\end{equation}
+%
+where
+%
+\begin{equation}
+  D_{\text{KL}}\left(p \middle\| q\right) = \sum_i p_i \log_2 \left(\frac{p_i}{q_i}\right)\geq 0
+\end{equation}
+%
+is the Kullback--Leibler (KL) divergence. The fact that the KL divergence is positive, or equivalently that the relative entropy always exceeds the entropy is known as \emph{Gibbs' inequality}. The implication is that coding with an imperfect distribution $q$ means that the minimum achievable average code length increases from $H(p)$ to $H(p,q)$.
+
+Let's return to the language example above. If we consider independent messages consisting of $N$-character blocks then the model $q(\text{block})=\prod_{\text{char}\in\text{block}}p(\text{char})$ permits a minimum average code length of
+%
+\begin{equation}
+  H(p,q)=-\sum_{{\text{block}\atop \text{char}\in\text{block}}} p(\text{block})\log_2 p(\text{char}).
+\end{equation}
+%
+Note that entropies are generally proportional to the size of the message (in physics we say that entropy is an \emph{extensive} quantity). This reflects the exponentially diminishing probabilities of any given message as the block length increases, and the associated exponential increase in number. This explosion in the number of possibilies is what limits the practicality of devising codes for ever longer blocks: you can't really consider the probability distribution over all possible images, say. However, the promise of generative models is that one can do a lot better than the simple models we discussed above and therefore get better codes adapted for a particular kind of data.
+
+\subsection{The `Bits Back' Idea}\label{sec:bits}
+
+The original papers on the `bits back' argument are Refs.~\cite{Hinton:1994aa,Frey:1996aa} (the second one is clearer)
+
+If you have a generative model $p(x,z)=p(x|z)p(z)$ how can you use its model likelihood
+%
+\begin{equation}
+  p(x) = \sum_z p(x|z)p(z)
+\end{equation}
+%
+ for coding? The issue is that for a complicated model computing the above marginal distribution will be intractable. One possibility is to encode a pair $(x_0,z_0)$ with $z_0$ coded using $p(z)$ and then $x_0$ encoded using $p(x|z_0)$. This involves using
+ %
+ \begin{equation}
+   \log p(z_0) + \log p(x_0|z_0)
+ \end{equation}
+%
+bits on average. We can do better. Suppose we had access to the posterior distribution $p(z|x)$. Now, calculating $p(z|x)$ is intractable, as it involves finding $p(x)$, but we'll see in a second that having an approximate posterior is also beneficial. For now, note that since
+%
+\begin{equation}
+  \log p(x) = \log \frac{p(x|z)p(z)}{p(z|x)},
+\end{equation}
+%
+we could begin our coding procedure by \emph{decoding} some bits from the bitstream using $p(z|x_0)$, yielding some $z_0$ and reducing the message length by $-\log p(z_0|x_0)$ bits. Then we code $z_0$ and $x_0$ as before, in which case we end up with exactly $\log p(x)$ bits. Practically, this approach is suited to the situation where many $z$'s code for a single $x$. Then the `bits back' $-\log p(z|x)$ will generally be positive.
+
+If we only have an approximation to the posterior $q(z|x)$, the same procecure yields a message of length
+%
+\begin{equation}
+  -\overbrace{\log \frac{p(x|z)p(z)}{q(z|x)}}^{\text{ELBO}}\geq -\log p(x),
+\end{equation}
+%
+with equality only achieved if $q(z|x)=p(z|x)$. The negative of the quantity on the left is called the \emph{Evidence Lower Bound} (or ELBO) and is the central quantity in variational inference.
+
+\subsection{Normalizing Flows}
+
+The central idea of normalizing flows is to assume that the data of interest $x$ are sampled from a highly complex probability distribution $x\sim p_X$, and to learn a transformation that maps this distribution to a simpler one. If we map to new variables $z$ by a function $z=f(x)$ then the $p_X$ is mapped transformed according to
+%
+\begin{equation}
+  p_Z(z) = p_X(x)\left|\frac{dx}{dz}\right|,
+\end{equation}
+%
+where $\left|\frac{dx}{dz}\right|$ is the determinant of the Jacobian matrix $J=\frac{dx}{dz}$ describing the transformation. If we fix a distribution $p_Z(z)$ then the mapping $f$ defines a model distribution $p_X(x)$. Usually we take $p_Z(z)$ to be factorized into identical distributions
+%
+\begin{equation}
+  p_Z(z) = \prod_j \pi(z_j),
+\end{equation}
+%
+so that the components $z_j$ are iid random variables (standard Gaussians say $z_j\sim \cN(0,1)$).
+
+The model is specified by the parameters that described $f$, usually expressed in terms of neural networks, and traditionally the function corresponds to the composition of several simpler functions $f=f_N\circ f_{N-1}\circ \cdots f_1$, each with a tractable Jacobian $J_k$ $k=1,\ldots N$, such that the overall Jacobian determinant is $|J|=\prod_k |J_k|$. If we don't take trouble to choose functions with `nice' Jacobians, the computation of a general determinant is $O(N^3)$, where $N$ is the dimensionality of the data.
+
+Training a normalizing flow (or any generative model) amounts to maximizing the log likelihood of the model averaged over the data
+%
+\begin{equation}\label{eq:cross}
+  \frac{1}{N_\text{data}}\sum_{i\in \text{data}} \log p_X(x^{(i)})=\E_{x\sim p_\text{data}}\left[\log p_X(x)\right]= -H(\text{data}, \text{model}),
+\end{equation}
+%
+which we recognize as minus the cross entropy. This is therefore maximized when the model and data distributions coincide.
+
+A normalizing flow thus provides a model of $p_X$. How would this allow us to compress the data?
+
+\subsection{Flows and Compression}
+
+\subsubsection{Integer (and Discrete) Flows}
+
+Most normalizing flow models developed so far have operated with continuous variables. If we want to use a trained flow model for compression, we need to work with discrete variables. Integer \cite{Hoogeboom:2019aa} and discrete \cite{Tran:2019aa} flow models have recently been developed. The Integer Discrete Flows (IDF) paper \cite{Hoogeboom:2019aa} specifically deals with the subject of compression. The \emph{key difference} from the continuous case is the absence of a Jacobian, so that
+%
+\begin{equation}
+  p_Z(z=f(x))= p_X(x).
+\end{equation}
+%
+The cross entropy \eqref{eq:cross} is then
+%
+\begin{equation}
+  H(\text{data}, \text{model}) = \frac{1}{N_\text{data}}\sum_{i\in \text{data}} \log p_Z(f(x_i))=\frac{1}{N_\text{data}}\sum_{i\in \text{data}}\sum_{k=1}^N \log \pi(f_k(x^{(i)}))
+\end{equation}
+%
+for $N$-dimensional data, assuming $p_Z(z)=\prod_k \pi(z_k)$. \emph{If} you manage to map the data distribution to the factored distribution exactly, this will achieve the minimum $H(\text{data})$ (obviously this statement only applies to the $N_\text{data}\to\infty$ limit). In fact the IDF paper chooses a more flexible model by conditioning the latents factored out at each stage of the flow on the variables not factored out $\pi(z_j|\theta_j(y))$. $\theta_j$ denote the parameters of the distribution of the $j^\text{th}$ component: in the paper they use a mixture of discretized logistic distributions. According to Rianne van den Berg, the reasons for this choice \emph{vs.} the option of learning a general discrete distribution via softmax are
+
+\begin{enumerate}
+  \item Softmax imposes no ordering whereas we general want an ordered set (e.g. pixel values).
+  \item Softmax would have many parameters, compared with just the mean and standard deviation of the logistic (repeated $K$ times for a mixture).
+  \item Not so easy to handle the absence of an upper interval.
+  \item Sparse gradients.
+
+\end{enumerate}
+
+[For reference PixelCNN did softmax; PixelCNN++ did mixture of logistics. I think the same was true with WaveNet vs. Parallel WaveNet]
+
+\subsubsection{Bits back}
+
+An alternative, presented in Ref.~\cite{Ho:2019aa}, is to train a \emph{continuous} flow model, where the Jacobian determinant relates the probability densities. The assumption (\emph{I believe}) is that $|J|\ll 1$, indicating that the latent densities are smaller as the data is `spread out' into the latent space. With the same discretization, there will then be places where many points in the latent space are mapped to a single point in the data space. Simply coding in the latent space using the probabilities $p_Z(\bar z)\delta_z$ -- where $\bar z$ denotes the quantized values and $\delta_z$ is the volume of a cell in the latent space -- ignores this redundancy. The procedure described in \cite{Ho:2019aa} essentially estimates this redundant volume and recovers the bits describing it via the bits back procedure.
+
+One objection to the approach of Ref.~\cite{Ho:2019aa} may be that the overall map is not going to be well approximated by a linear map, justifying the Gaussian treatment. However, they apply the bits back scheme at each level of the mapping and this may be a way around.
+
+I have the feeling that the schemes of Refs.~\cite{Hoogeboom:2019aa,Ho:2019aa} are not so different. Learning the hierarchical distribution is probably performing the same function as the bits back scheme.
+
+% Since in the discrete case the model probabilities and $p_X(x)$ and the latent probabilities $p_Z(z)$ are the same (there is no Jacobian), the above entropy is a lower bound on the cross entropy $H(\text{model}, \text{data})$. Note that this differs from the cross entropy $H(\text{data}, \text{model})$ that is minimized in training the model.
+
+% Implications for entropy: entropy can only decrease when mapping by a function, with entropy being preserved for bijections. This has the implication that if bijectivity breaks down (e.g. by rounding) entropy is lost.
+
+\subsubsection{Bits back as variational inference}
+
+How does the procedure of \cite{Ho:2019aa} fit into the general scheme described in Section \ref{sec:bits}? When normalizing flows are defined for \emph{continuous} variables the conditional distributions $p(x|z)$ and $p(z|x)$ are deterministic, being described by $x=f^{-1}(z)$ and $z=f(x)$ respectively. However, when we naively discretize such a mapping, there will be places where the bijection breaks down as different inputs are mapped to the same output. In this way we end up with two mappings $\bar z = \lfloor f(\bar x)\rceil$ and $\bar x = \lfloor f^{-1}(\bar z)\rceil$, where we follow Ref.~\cite{Ho:2019aa} in denoting the integer part by a bar. In general these maps are not bijections, and one is not the inverse of the other. Both are surjective.
+
+If we regard the decoder map $\bar x = \lfloor f^{-1}(\bar z)\rceil$ as $p(\bar x|\bar z)$ then the corresponding $p(\bar z|\bar x)$ is probabilistic. $p(\bar z|\bar x)$ is intractable for high dimensional data: we can't afford to search over $\bar z$ to find all values that map to $\bar x$. To apply the bits back scheme we therefore need an approximate posterior $q(\bar z|\bar x)$, which is the role played by the discretized Gaussian in \cite{Ho:2019aa}.
+
+I think the assumption of this approach to compression is that it is $\bar x = \lfloor f^{-1}(\bar z)\rceil$ that tends to have regions of many-to-one behaviour, while $\bar z = \lfloor f(\bar x)\rceil$ is predominately injective. If this wasn't the case, so that there were many places where $\bar z = \lfloor f(\bar x)\rceil$ is many-to-one, the bits back scheme won't lead to effective compression.
+
+\subsubsection{Bits back in general}
+
+Suppose we have a model consisting of a pair of conditionals $q(z|x)$ and $q(x|z)$ (transition kernels) between integer valued (or generally discrete) data, with tractable distributions that encode with and decode (sample) from, together with a latent distribution $p(z)$. The bits back coding scheme is then
+
+\begin{itemize}
+  \item Start from symbol $x_0$.
+  \item Decode $z_0$ from random bits using $q(z|x_0)$.
+  \item Encode $x_0$ using $q(x|z_0)$.
+  \item Encode $z_0$ using $p(z)$
+\end{itemize}
+
+The overall number of bits is
+%
+\begin{equation}\label{eq:bit_count}
+  \E_{x_0\sim\text{data} \atop z_0 \sim q(z|x_0)} \log\frac{q(z_0|x_0)}{q(x_0|z_0)p(z_0)}.
+\end{equation}
+%
+This is minimized when $q(z|x)$ and $q(x|z)$ are transition kernels between $p(z)$ and $p_\text{data}(x)$
+%
+\begin{align}\label{eq:kernels}
+  p(z) &= \sum_x q(z|x) p_\text{data}(x)\\
+  p_\text{data}(x) &= \sum_x q(x|z) p(z).
+\end{align}
+%
+To see this, rewrite \eqref{eq:bit_count} as
+%
+\begin{align}
+  \E_{x_0\sim\text{data} \atop z_0 \sim q(z|x_0)} \log\frac{q(z_0|x_0)}{q(x_0|z_0)p(z_0)} &= \E_{x_0\sim\text{data} \atop z_0 \sim q(z|x_0)} \log\frac{q(z_0|x_0)p_\text{data}(x)}{q(x_0|z_0)p(z_0)} - \E_{x_0\sim \text{data}} \log p_\text{data}(x_0)\\
+  &= D_{\text{KL}}\left(q(z|x)p_\text{data}(x) \middle\| q(x|z)p(z)\right) + H(\text{data}).
+\end{align}
+%
+The first term is the KL divergence between the two joint distributions $q(z|x)p_\text{data}(x)$ and $q(x|z)p(z)$. It is positive, and vanishes when the two distributions coincide, so that \eqref{eq:kernels} is satisfied. At this point we achieve the Shannon minimum.
+
+Notes
+
+\begin{itemize}
+
+\item This objective is really just the usual VAE objective, it's just normally presented as minimizing over a variational $q(z|x)$ given some generative model $p(x|z)$. VAEs can suffer from `posterior collapse', meaning that the $q(z|x)$ ends up spreading over the latent space if the model is too expressive, so that $q(x|z)$ approach $p_\text{data}$. This is bad if you want interpretable latent dimensions, but there's nothing wrong with it from the coding point of view: it means you get more bits back! In fact, the expressiveness of the models will be limited by the need to encode and decode with $q(z|x)$ and especially $q(x|z)$. If you were able to code with a model $q(x|z)$ that approached $p_\text{data}(x)$ there would be no need for a generative model in the first place!
+
+\item When the transition kernels describe a bijection
+%
+\begin{align}
+  q(z|x) &= \delta(z-f(x))\\
+  q(x|z) &= \delta(x-f^{-1}(z))
+\end{align}
+%
+we have
+%
+\begin{equation}
+  \frac{q(z|x)}{q(x|z)}=\left|\frac{\partial x}{\partial z}\right|,
+\end{equation}
+%
+and we recover the objective for a normalizing flow. Although Ref.~\cite{Ho:2019aa} add noise for the purpose of encoding / decoding, they still train with the original objective. See Ref.~\cite{Gritsenko:2019aa} for more on the connection between VAEs and NFs.
+
+\item We do still need to be able to take gradients through the expectations over $z$. This suggests a continuous $z$ is still preferable, even for discrete $x$. As shown in Ref.~\cite{Townsend:2019aa} the resolution in the $z$ space cancels out as it appears in both $q(z|x)$ and $p(z)$. Alternatively, one can use the score function estimator, see Section \ref{sec:grads}.
+
+\item Jittering, often done to dequantize discrete data, effectively adds noise to a normalizing flow. This is essentially what is done in Ref.~\cite{Ho:2019aa}.
+
+\item It is possible in principle to use separate networks for $q(z|x)$ and  $q(x|z)$ (c.f. parallel WaveNet). However, since encoding and decoding require both, it's necessary in practice that both are fast.
+
+\end{itemize}
+
+\subsubsection{From lossless to lossy compression}
+
+Following the IDF scheme, one possible way to interpolate from lossless to lossy compression is to keep only higher level latents and sample the lower ones. Because their distribution depends on the higher level variables this will preserve the learned distribution.
+
+\subsection{Applications of NNs to Audio Compression}
+
+\cite{Kankanahalli:2018aa,Garbacea:2019aa} explore lossy compression of speech with neural networks.
+
+Ref.~\cite{Huang:2014aa} on the IEEE AAC standard says that state of the art lossless compression is only $2\times$. But this is \emph{hopeless}! Imagine what a signal with that entropy sounds like! It would be almost indistinguishable from white noise. Lossy compression that exploits perceptual shrortcomings of human hearing gets $20\times$ compression.
+
+\section{WaveNet Autoencoder}
+
+With a view to bits back encoding for audio models we consider a probabilistic encoder $p_\theta(z|x)$ and decoder $p_\phi(x|z)$ for integer valued data with causal structure
+%
+\begin{align}
+  p_\theta(z|x) = \prod_t p_\theta(z_t|x_{1:t-1})\\
+  p_\phi(x|z) = \prod_t p_\phi(x_t|z_{1:t-1}).
+\end{align}
+%
+The distributions $p_\theta(z_t|x_{1:t-1})$ and $p_\phi(x_t|z_{1:t-1})$ could be mixtures of discretized logistics, say, as for PixelCNN++ and Parallel WaveNet \cite{Oord:2017aa}. The decoder is an example of \emph{inverse autoregressive flow} and the encoder can be thought of as the inverse pass of a \emph{masked autoregressive flow} (see Jang's blog).
+
+The VAE objective to be minimized takes the form
+%
+\begin{equation}\label{eq:vae_obj}
+\cL_\text{VAE}=
+  \E_{x\sim\text{data} \atop z \sim p_\theta(\cdot|x)} \log\frac{p_\theta(z|x)}{p_\phi(x|z)p(z)} = \E_{x\sim\text{data} \atop z \sim p_\theta(\cdot|x)} \left[-\log p(z) + \sum_t \left(\log p_\theta(z_t|x_{1:t-1}) - \log p_\phi(x_t|z_{1:t-1})\right)\right].
+\end{equation}
+%
+
+\subsection{Gradients}\label{sec:grads}
+
+How do we optimize with respect to parameters $\theta$ and $\phi$? Gradients with respect to $\phi$ are straightforward, as they just appear inside the expectation. Gradients with respect to $\theta$ are trickier, as $\theta$ appears in the distribution used for the expectation. When VAEs use continuous latent variables, this issue is usually handled using the \emph{reparameterization trick}. For example, if $\vect{z}$ is Gaussian $\vect{z}\sim \cN(\bm\mu,\bm\Sigma)$ then $z$ may be written in terms of a vector of iid standard normals $\xi_j\sim \cN(0,1)$ as
+%
+\begin{equation}\label{eq:reparam}
+  \vect{z}=\bm{A}\bm{\xi} + \bm{\mu}
+\end{equation}
+%
+where $\bm\Sigma=\bm{A} \bm{A}^T$. Thus we would parameterize $\bm{A}_\theta$ and $\bm{\mu}_\theta$, average with respect to $\bm{\xi}$, and substitute \eqref{eq:reparam} inside the expectation. Differentiating with respect to $\theta$ is then as easy as for $\phi$.
+
+Unfortunately, for discrete variables this isn't an option: one can't continuously change a sample from a discrete distribution. One alternative is to use the REINFORCE algorithm or score function estimator (see \href{http://stillbreeze.github.io/REINFORCE-vs-Reparameterization-trick/}{this blog post}). Despite the long names the idea is simple and is based on the identity
+%
+\begin{equation}
+  \frac{\partial}{\partial \theta} \E_{z\sim p_\theta}\left[f(z)\right] =\E_{z\sim p_\theta}\left[f(z) \frac{\partial \log p_\theta(z)}{\partial \theta} \right].
+\end{equation}
+%
+In this way we get
+%
+\begin{equation}
+  \frac{\partial}{\partial \theta}\E_{x\sim\text{data} \atop z \sim p_\theta(\cdot|x)} \left[\log p_\phi(x_t|z_{1:t-1})\right] = \E_{x\sim\text{data} \atop z \sim p_\theta(\cdot|x)} \left[\left(\sum_{t_1} \log p_\phi(x_{t_1}|z_{1:t_1-1})\right)\frac{\partial}{\partial \theta}\left(\sum_{t_2} \log p_\theta(z_{t_2}|x_{1:t_2-1})\right)\right].
+\end{equation}
+%
+\href{https://pytorch.org/docs/stable/distributions.html#score-function}{PyTorch implementation here}. Although the score function estimator is simple there can be issues with the variance. See Ref.~\cite{Mohamed:2019aa} for a recent review about Monte Carlo gradient estimation.
+
+The VAE objective \eqref{eq:vae_obj} also involves the entropy of the encoder distribution
+%
+\begin{equation}
+  \E_{z \sim p_\theta(\cdot|x)} \log p_\theta(z|x) = - H(q_\theta(\cdot|x)).
+\end{equation}
+%
+It's possible that this can be computed analytically in terms of the the parameters of the distribution. For a categorical distribution you just have to sum over the values.  I don't know how to do this for the mixture of discretized logistics, but perhaps it would suffice to use a lower bound on entropy for a mixture $q(z)=\sum_j c_j q_j(z)$
+%
+\begin{equation}
+  H(q)\geq \sum_j c_j H(q_j).
+\end{equation}
+%
+See \href{https://www.tensorflow.org/probability/api_docs/python/tfp/distributions/Mixture#entropy}{TensorFlow docs} for discussion.
+%
+
+\subsection{Concrete Implementation}
+
+I suggest implementing the encoder $p_\theta$ and decoder $p_\phi$ as WaveNets. Usually, WaveNet is implemented as a pure autoregressive model $p(x_t|x_{1:t-1})$ with no latent variables, but I think there is nothing to stop us switching $z_t$ for $x_t$.
+
+The original WaveNet \cite{Oord:2016aa} used 8 bit audio (256 levels) and a categorical distribution via SoftMax. Parallel WaveNet \cite{Oord:2017aa} used 16 bit audio and a mixture of logistic distributions.
+
+NVIDIA has a \href{https://github.com/NVIDIA/nv-wavenet}{reference implementation} of WaveNet with a PyTorch wrapper. Whether the CUDA implementation is necessary with GPU support in PyTorch I don't know. Details are described in \href{https://devblogs.nvidia.com/nv-wavenet-gpu-speech-synthesis/}{this blog post}. This is the autoregressive model only, without conditioning, so is suitable for us.
+
+I would start with the 8 bit case and a categorical distribution.
+
+\subsection{Contrast with parallel WaveNet}
+
+Parallel WaveNet \cite{Oord:2017aa} (see also Jang's blog) also used two networks, but the strategy is different. They first train a network (`teacher') as before but then use another network (`student') for generation, training the student's distribution to match the teachers.
+
+\subsection{Bits back with autoregressive encoder / decoder}
+
+
+\begin{comment}
+
+\section{Invertible Architectures}
+
+MintNet
+
+Unconstrained Monotonic Neural Networks
+
+\subsection{Invertible ResNets}
+
+iResNet paper and friends....
+
+\subsection{Invertible Activations}
+
+\cite{Finzi:aa} use SneakyReLU which seems like a very simple approach. Can additionally learn leaky parameter. Nice thing about this is that it allows the system to learn linear transformations if desired.
+
+
+\subsection{Fixed point iteration}
+
+
+\subsection{Autoregressive methods}
+
+As explained in Ref.~\cite{Hoogeboom:2019ab}, an inverse of an autoregressive convolution can be achieved in $O(N^2)$ in the size of the input, as it has to be done sequentially. In their code there is a Cython implementation of a parallel inversion module, and they maintain a small dimension
+
+\subsection{Fourier Methods}
+
+Refs.~\cite{Karami:2018aa,Hoogeboom:2019ab,Finzi:aa,Karami:aa} use Fourier methods to invert convolutions.
+
+Invertibility guaranteed by Wiener's lemma. One problem is that the length of filters is not guaranteed. However, absolute convergence \emph{is} guaranteed. More seriously, to invert a convolution in the Fourier domain would require us to specify the sample length, which seems antithetical to a theoretically infinite sample length (not a problem for the image domain).
+
+\subsection{Neural Autoregressive Flows}
+
+The architecture described in Ref.~\cite{Huang:2018aa} is very close to the generalized lifting described earlier in Ref.~\cite{Sole:2004aa}. Ref.~\cite{Huang:2018aa} proposes the transformation
+%
+\begin{equation}
+  y_t = \text{DNN}(x_t,\phi=c(x_{1:t-1})),
+\end{equation}
+%
+\begin{figure}
+  \includegraphics{NAF.png}
+  \caption{NAF architecture from Ref.~\cite{Huang:2018aa}}
+  \label{fig:NAF}
+\end{figure}
+
+Compare with Eq.~(4) of Ref.~\cite{Sole:2004aa}, together with the restriction to the subspace $A_0$.
+
+\subsection{Invertible $n\times n$ convolutions}
+
+Ref.~\cite{Finzi:aa} does what?
+
+\subsection{Summary}
+
+\begin{itemize}
+
+\item Fourier methods are ruled out for (theoretically) infinite data
+\item Inversion of autoregressive steps must be done sequentially (really same issue as with WaveNet)
+
+\end{itemize}
+
+\section{Wavelets, Lifting, and Invertibility}
+
+\subsection{The Lifting Scheme}
+
+Lifting provides a general recipe for building an invertible convolution from data of shape $[N,1]$ to $[N/2,2]$. All such transformations can be constructed this way. This is therefore an alternative to (say) using an autoregressive transformation with a single channel, and then splitting
+
+\subsection{Adding Nonlinearity}
+
+Instead of an affine transformation, we can look for invertible pointwise transformations of the form
+%
+\begin{equation}
+  z_a^{j} = f(x_a^{j},\phi=c(x_b)).
+\end{equation}
+%
+As for NAF, $f()$ can be described by a DNN with special constraints to guarantee invertibility, while $c(x_b)$ can be a NN without constraints, e.g. CNN.
+
+We can combine this with linear coupling layers, or regard this as a basic building block in its own right for a causal structure, as
+%
+\begin{align}
+  z_{2j} = f_\text{even}(x_{2j},x_{2j+1})\\
+  z_{2j-1} = f_\text{odd}(x_{2j-1},z_{2j}).
+\end{align}
+%
+with  $f$'s defined by NNs such that $f(\cdot,x)$ is a bijection.
+
+\section{Infinite Time Normalizing Flows}
+
+Selling point: flow adapted to infinite domain which is fast in both directions
+
+Terminology: Causal coupling layers
+
+Any autoregressive model
+
+See recent Blow paper \cite{Serra:2019aa}:
+
+\begin{quote}
+  Blow operates on a
+  frame-by-frame basis without context; we admit that this could be insufficient to model long-range
+  speaker-dependent prosody, but nonetheless believe it is enough to model core speaker identity traits.
+\end{quote}
+
+This indicates a need that for a model that can transform frames with context.
+
+\section{Experiments}
+
+
+\end{comment}
+
+
+\bibliography{wavelets}
+
+
+
+
+\end{document}
